@@ -689,4 +689,82 @@ public class McpServerTests : LoggedTest
 
         public object? GetService(Type serviceType, object? serviceKey = null) => null;
     }
+
+    [Fact]
+    public async Task NotifyProgress_Should_Be_Handled()
+    {
+        var taskCompletionSource = new TaskCompletionSource();
+        bool notificationHandled = false;
+        await Notifications_Are_Handled(
+            serverCapabilities: null,
+            method: NotificationMethods.ProgressNotification,
+            parameters: new ProgressNotificationParams()
+            {
+                ProgressToken = Guid.NewGuid(),
+                Progress = 50,
+                Total = 100,
+                Message = "Progress message",
+            },
+            configureOptions: null,
+            configureServer: server =>
+            {
+                server.AddNotificationHandler(NotificationMethods.ProgressNotification,
+                    (notification) =>
+                    {
+                        notificationHandled = true;
+                        var progress = (ProgressNotificationParams?)notification.Params;
+                        Assert.NotNull(progress);
+                        taskCompletionSource.SetResult();
+                        Assert.Equal(50, progress.Progress);
+                        Assert.Equal(100, progress.Total);
+                        Assert.Equal("Progress message", progress.Message);
+                        return Task.CompletedTask;
+                    });
+            },
+            assertResult: async response =>
+            {
+                //Note: awaiting here so handlers are guaranteed to be called first.
+                await taskCompletionSource.Task.WaitAsync(TimeSpan.FromSeconds(1));
+                Assert.True(notificationHandled);
+            });
+    }
+
+    private async Task Notifications_Are_Handled(
+        ServerCapabilities? serverCapabilities,
+        string method, object? parameters,
+        Action<McpServerOptions>? configureOptions,
+        Action<IMcpServer>? configureServer,
+        Action<JsonRpcNotification> assertResult)
+    {
+        await using TestServerTransport transport = new();
+        var options = CreateOptions(serverCapabilities);
+        configureOptions?.Invoke(options);
+
+        await using var server = McpServerFactory.Create(
+            transport, options, LoggerFactory, _serviceProvider);
+
+        var logger = LoggerFactory.CreateLogger<IMcpServer>();
+        configureServer?.Invoke(server);
+        await server.StartAsync();
+
+        TaskCompletionSource<JsonRpcNotification> receivedMessage = new();
+
+        transport.OnMessageSent = (message) =>
+        {
+            Assert.NotNull(message);
+            if (message is JsonRpcNotification notification && notification.Method == method)
+            {
+                assertResult(notification);
+                receivedMessage.SetResult(notification);
+            }
+        };
+
+        await transport.SendMessageAsync(new JsonRpcNotification
+        {
+            Method = method,
+            Params = parameters,
+        });
+
+        var response = await receivedMessage.Task.WaitAsync(TimeSpan.FromSeconds(1));
+    }
 }

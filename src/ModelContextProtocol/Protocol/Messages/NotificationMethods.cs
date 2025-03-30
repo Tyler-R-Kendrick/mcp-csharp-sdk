@@ -34,4 +34,9 @@ public static class NotificationMethods
     /// Sent by the server when a log message is generated.
     /// </summary>
     public const string LoggingMessageNotification = "notifications/message";
+
+    /// <summary>
+    /// Sent by the either the server or client when a progress notification is generated.
+    /// </summary>
+    public const string ProgressNotification = "notifications/progress";
 }

@@ -1,0 +1,23 @@
+{
+	"image": "mcr.microsoft.com/devcontainers/universal:2",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"GitHub.copilot",
+				"ms-dotnettools.csdevkit"
+			]
+		}
+	},
+    "features": {
+        "ghcr.io/devcontainers/features/dotnet": {
+            "version": "latest",
+            "installDotnetCore": true,
+            "installDotnetFramework": false,
+            "installAspNetCore": true,
+            "installMono": false,
+            "installPowerShell": false,
+            "installFSharp": false,
+            "installMSBuild": true
+        }
+    }
+}

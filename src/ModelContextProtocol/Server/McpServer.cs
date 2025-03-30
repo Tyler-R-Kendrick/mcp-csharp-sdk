@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Logging;
 using ModelContextProtocol.Protocol.Messages;
 using ModelContextProtocol.Protocol.Transport;
@@ -16,7 +15,6 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
     private readonly IServerTransport? _serverTransport;
     private readonly string _serverDescription;
     private readonly EventHandler? _toolsChangedDelegate;
-
     private volatile bool _isInitializing;
 
     /// <summary>
@@ -57,7 +55,6 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
         });
 
         SetToolsHandler(options);
-
         SetInitializeHandler(options);
         SetCompletionHandler(options);
         SetPingHandler();
@@ -235,14 +232,28 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
         {
             var originalListToolsHandler = listToolsHandler;
             var originalCallToolHandler = callToolHandler;
+            var hasOriginalTools = originalListToolsHandler is not null;
 
             // Synthesize the handlers, making sure a ToolsCapability is specified.
             listToolsHandler = async (request, cancellationToken) =>
             {
+                var progressToken = request.Params?.Meta?.ProgressToken;
+                int? totalProgress = hasOriginalTools ? null : tools.Count;
                 ListToolsResult result = new();
+                var resultTools = result.Tools;
                 foreach (McpServerTool tool in tools)
                 {
-                    result.Tools.Add(tool.ProtocolTool);
+                    resultTools.Add(tool.ProtocolTool);
+                    if(progressToken is not null)
+                    {
+                        await this.NotifyProgressAsync(new()
+                        {
+                            ProgressToken = progressToken,
+                            Progress = resultTools.Count,
+                            Total = totalProgress,
+                            Message = $"Listing tool '{tool.ProtocolTool.Name}'...",
+                        }, cancellationToken).ConfigureAwait(false);
+                    }
                 }
 
                 if (originalListToolsHandler is not null)
@@ -251,7 +262,19 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                     do
                     {
                         ListToolsResult extraResults = await originalListToolsHandler(request, cancellationToken).ConfigureAwait(false);
-                        result.Tools.AddRange(extraResults.Tools);
+                        foreach(var tool in extraResults.Tools)
+                        {
+                            resultTools.Add(tool);
+                            if (progressToken is not null)
+                            {
+                                await this.NotifyProgressAsync(new()
+                                {
+                                    ProgressToken = progressToken,
+                                    Progress = resultTools.Count,
+                                    Message = $"Listing extra tool '{tool.Name}'...",
+                                }, cancellationToken).ConfigureAwait(false);
+                            }
+                        }
 
                         nextCursor = extraResults.NextCursor;
                         if (nextCursor is not null)
@@ -261,10 +284,22 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                     }
                     while (nextCursor is not null);
                 }
+                
+                if(progressToken is not null)
+                {
+                    await this.NotifyProgressAsync(new()
+                    {
+                        ProgressToken = progressToken,
+                        Progress = resultTools.Count,
+                        Total = resultTools.Count,
+                        Message = "Finished listing all tools.",
+                    }, cancellationToken).ConfigureAwait(false);
+                }
 
                 return result;
             };
 
+            // TODO: We may want to inject something like an IProgress instance here for optional use in tool handlers. 
             callToolHandler = (request, cancellationToken) =>
             {
                 if (request.Params is null ||
