@@ -5,7 +5,7 @@
 The official C# SDK for the [Model Context Protocol](https://modelcontextprotocol.io/), enabling .NET applications, services, and libraries to implement and interact with MCP clients and servers. Please visit our [API documentation](https://modelcontextprotocol.github.io/csharp-sdk/api/ModelContextProtocol.html) for more details on available functionality.
 
 > [!NOTE]
-> This repo is still in preview, breaking changes can be introduced without prior notice.
+> This project is in preview; breaking changes can be introduced without prior notice.
 
 ## About MCP
 
@@ -44,7 +44,7 @@ var client = await McpClientFactory.CreateAsync(new()
 });
 
 // Print the list of tools available from the server.
-await foreach (var tool in client.ListToolsAsync())
+foreach (var tool in await client.ListToolsAsync())
 {
     Console.WriteLine($"{tool.Name} ({tool.Description})");
 }
