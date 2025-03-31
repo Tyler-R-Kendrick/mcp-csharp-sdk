@@ -336,7 +336,11 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                     {
                         await this.NotifyProgressAsync(new()
                         {
-                            Progress = currentCount,
+                            ProgressToken = progressToken.Value,
+                            Progress = new()
+                            {
+                                Progress = currentCount,
+                            },
                         }, cancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -350,9 +354,15 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                 {
                     string? nextCursor = null;
                     var initialCount = resultTools.Count;
-                    await TryNotifyProgressAsync(initialCount).ConfigureAwait(false);
-                    do
-                    {
+                    int lastReportedCount = 0;  
+                    do  
+                    {  
+                        if (progressToken is not null && resultTools.Count > lastReportedCount)  
+                        {  
+                            await TryNotifyProgressAsync(lastReportedCount).ConfigureAwait(false);  
+                            lastReportedCount = resultTools.Count;  
+                        }
+
                         var extraResults = await originalListToolsHandler(request, cancellationToken).ConfigureAwait(false);
                         resultTools.AddRange(extraResults.Tools);
 
@@ -361,7 +371,6 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                         {
                             request = request with { Params = new() { Cursor = nextCursor } };
                         }
-                        await TryNotifyProgressAsync(initialCount).ConfigureAwait(false);
                     }
                     while (nextCursor is not null);
                 }

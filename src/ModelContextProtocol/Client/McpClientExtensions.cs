@@ -542,7 +542,6 @@ public static class McpClientExtensions
 
             var (messages, options) = requestParams.ToChatClientArguments();
             var progressToken = requestParams.Meta?.ProgressToken;
-            var maxProgress = options?.MaxOutputTokens;
             int progressValue = 0;
             var streamingResponses = chatClient.GetStreamingResponseAsync(
                 messages, options, cancellationToken);
@@ -555,7 +554,6 @@ public static class McpClientExtensions
                     progress.Report(new()
                     {
                         Progress = ++progressValue,
-                        Total = maxProgress,
                     });
                 }
             }
