@@ -393,54 +393,44 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                 int? totalProgress = hasOriginalTools ? null : tools.Count;
                 ListToolsResult result = new();
                 var resultTools = result.Tools;
-                foreach (McpServerTool tool in tools)
+                    
+                async Task TryNotifyProgressAsync(int previousCount)
                 {
-                    resultTools.Add(tool.ProtocolTool);
-                    if (progressToken is not null)
+                    var toolsCount = resultTools.Count;
+                    if (progressToken is not null
+                        && toolsCount > 0
+                        && toolsCount != previousCount)
                     {
                         await this.NotifyProgressAsync(new()
                         {
-                            Progress = resultTools.Count,
-                            Total = totalProgress,
+                            Progress = toolsCount,
                         }, cancellationToken).ConfigureAwait(false);
                     }
+                }
+
+                foreach (McpServerTool tool in tools)
+                {
+                    resultTools.Add(tool.ProtocolTool);
                 }
 
                 if (originalListToolsHandler is not null)
                 {
                     string? nextCursor = null;
+                    var progressValue = resultTools.Count;
+                    await TryNotifyProgressAsync(progressValue).ConfigureAwait(false);
                     do
                     {
-                        ListToolsResult extraResults = await originalListToolsHandler(request, cancellationToken).ConfigureAwait(false);
-                        foreach(var tool in extraResults.Tools)
-                        {
-                            resultTools.Add(tool);
-                        }
+                        var extraResults = await originalListToolsHandler(request, cancellationToken).ConfigureAwait(false);
+                        resultTools.AddRange(extraResults.Tools);
 
                         nextCursor = extraResults.NextCursor;
                         if (nextCursor is not null)
                         {
                             request = request with { Params = new() { Cursor = nextCursor } };
                         }
-                        
-                        if (progressToken is not null)
-                        {
-                            await this.NotifyProgressAsync(new()
-                            {
-                                Progress = resultTools.Count,
-                            }, cancellationToken).ConfigureAwait(false);
-                        }
+                        await TryNotifyProgressAsync(progressValue).ConfigureAwait(false);
                     }
                     while (nextCursor is not null);
-                }
-                
-                if(progressToken is not null)
-                {
-                    await this.NotifyProgressAsync(new()
-                    {
-                        Progress = resultTools.Count,
-                        Total = resultTools.Count,
-                    }, cancellationToken).ConfigureAwait(false);
                 }
 
                 return result;
