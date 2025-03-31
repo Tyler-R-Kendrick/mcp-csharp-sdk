@@ -178,7 +178,7 @@ public static class McpServerExtensions
     /// <returns>A task containing the response from the client.</returns>
     public static Task NotifyProgressAsync(
         this IMcpServer server,
-        ProgressNotificationParams notification,
+        ProgressNotificationValue notification,
         CancellationToken cancellationToken = default)
     {
         Throw.IfNull(server);

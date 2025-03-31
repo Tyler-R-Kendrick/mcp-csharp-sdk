@@ -657,12 +657,15 @@ public class McpServerTests : LoggedTest
         await Notifications_Are_Handled(
             serverCapabilities: null,
             method: NotificationMethods.ProgressNotification,
-            parameters: new ProgressNotificationParams()
+            parameters: new ProgressNotification()
             {
-                ProgressToken = Guid.NewGuid(),
-                Progress = 50,
-                Total = 100,
-                Message = "Progress message",
+                ProgressToken = new(),
+                Progress = new()
+                {
+                    Progress = 50,
+                    Total = 100,
+                    Message = "Progress message",
+                },
             },
             configureOptions: null,
             configureServer: server =>
@@ -671,12 +674,13 @@ public class McpServerTests : LoggedTest
                     (notification) =>
                     {
                         notificationHandled = true;
-                        var progress = (ProgressNotificationParams?)notification.Params;
+                        var progress = (ProgressNotificationValue?)notification.Params;
                         Assert.NotNull(progress);
+                        var progressValue = progress.Value;
                         taskCompletionSource.SetResult();
-                        Assert.Equal(50, progress.Progress);
-                        Assert.Equal(100, progress.Total);
-                        Assert.Equal("Progress message", progress.Message);
+                        Assert.Equal(50, progressValue.Progress);
+                        Assert.Equal(100, progressValue.Total);
+                        Assert.Equal("Progress message", progressValue.Message);
                         return Task.CompletedTask;
                     });
             },

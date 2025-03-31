@@ -400,7 +400,6 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                     {
                         await this.NotifyProgressAsync(new()
                         {
-                            ProgressToken = progressToken,
                             Progress = resultTools.Count,
                             Total = totalProgress,
                             Message = $"Listing tool '{tool.ProtocolTool.Name}'...",
@@ -421,7 +420,6 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                             {
                                 await this.NotifyProgressAsync(new()
                                 {
-                                    ProgressToken = progressToken,
                                     Progress = resultTools.Count,
                                     Message = $"Listing extra tool '{tool.Name}'...",
                                 }, cancellationToken).ConfigureAwait(false);
@@ -441,7 +439,6 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                 {
                     await this.NotifyProgressAsync(new()
                     {
-                        ProgressToken = progressToken,
                         Progress = resultTools.Count,
                         Total = resultTools.Count,
                         Message = "Finished listing all tools.",

@@ -531,7 +531,7 @@ public static class McpClientExtensions
     /// </summary>
     /// <param name="chatClient">The <see cref="IChatClient"/> with which to satisfy sampling requests.</param>
     /// <returns>The created handler delegate.</returns>
-    public static Func<CreateMessageRequestParams?, IProgress<ProgressNotificationParams>, CancellationToken, Task<CreateMessageResult>> CreateSamplingHandler(
+    public static Func<CreateMessageRequestParams?, IProgress<ProgressNotificationValue>, CancellationToken, Task<CreateMessageResult>> CreateSamplingHandler(
         this IChatClient chatClient)
     {
         Throw.IfNull(chatClient);
@@ -554,7 +554,6 @@ public static class McpClientExtensions
                 {
                     progress.Report(new()
                     {
-                        ProgressToken = progressToken,
                         Progress = ++progressValue,
                         Total = maxProgress,
                     });
