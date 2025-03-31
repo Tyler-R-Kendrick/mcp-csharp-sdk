@@ -1,5 +1,4 @@
-﻿using ModelContextProtocol.Configuration;
-using ModelContextProtocol.Protocol.Transport;
+﻿using ModelContextProtocol.Protocol.Transport;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 
@@ -16,7 +15,7 @@ public class McpServerBuilderExtensionsTransportsTests
 
         builder.Object.WithStdioServerTransport();
 
-        var transportType = services.FirstOrDefault(s => s.ServiceType == typeof(IServerTransport));
+        var transportType = services.FirstOrDefault(s => s.ServiceType == typeof(ITransport));
         Assert.NotNull(transportType);
         Assert.Equal(typeof(StdioServerTransport), transportType.ImplementationType);
     }

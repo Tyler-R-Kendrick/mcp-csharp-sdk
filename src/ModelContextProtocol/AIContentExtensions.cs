@@ -25,6 +25,37 @@ public static class AIContentExtensions
         };
     }
 
+    /// <summary>Creates <see cref="ChatMessage"/>s from a <see cref="GetPromptResult"/>.</summary>
+    /// <param name="promptResult">The messages to convert.</param>
+    /// <returns>The created <see cref="ChatMessage"/>.</returns>
+    public static IList<ChatMessage> ToChatMessages(this GetPromptResult promptResult)
+    {
+        Throw.IfNull(promptResult);
+
+        return promptResult.Messages.Select(m => m.ToChatMessage()).ToList();
+    }
+
+    /// <summary>Gets <see cref="PromptMessage"/> instances for the specified <see cref="ChatMessage"/>.</summary>
+    /// <param name="chatMessage">The message for which to extract its contents as <see cref="PromptMessage"/> instances.</param>
+    /// <returns>The converted content.</returns>
+    public static IList<PromptMessage> ToPromptMessages(this ChatMessage chatMessage)
+    {
+        Throw.IfNull(chatMessage);
+
+        Role r = chatMessage.Role == ChatRole.User ? Role.User : Role.Assistant;
+
+        List<PromptMessage> messages = [];
+        foreach (var content in chatMessage.Contents)
+        {
+            if (content is TextContent or DataContent)
+            {
+                messages.Add(new PromptMessage { Role = r, Content = content.ToContent() });
+            }
+        }
+
+        return messages;
+    }
+
     /// <summary>Creates a new <see cref="AIContent"/> from the content of a <see cref="Content"/>.</summary>
     /// <param name="content">The <see cref="Content"/> to convert.</param>
     /// <returns>The created <see cref="AIContent"/>.</returns>
@@ -39,11 +70,7 @@ public static class AIContentExtensions
         }
         else if (content is { Type: "resource" } && content.Resource is { } resourceContents)
         {
-            ac = resourceContents.Blob is not null && resourceContents.MimeType is not null ?
-                new DataContent(Convert.FromBase64String(resourceContents.Blob), resourceContents.MimeType) :
-                new TextContent(resourceContents.Text);
-
-            (ac.AdditionalProperties ??= [])["uri"] = resourceContents.Uri;
+            ac = resourceContents.ToAIContent();
         }
         else
         {
@@ -62,9 +89,12 @@ public static class AIContentExtensions
     {
         Throw.IfNull(content);
 
-        AIContent ac = content.Blob is not null && content.MimeType is not null ?
-            new DataContent(Convert.FromBase64String(content.Blob), content.MimeType) :
-            new TextContent(content.Text);
+        AIContent ac = content switch
+        {
+            BlobResourceContents blobResource => new DataContent(Convert.FromBase64String(blobResource.Blob), blobResource.MimeType ?? "application/octet-stream"),
+            TextResourceContents textResource => new TextContent(textResource.Text),
+            _ => throw new NotSupportedException($"Resource type '{content.GetType().Name}' is not supported.")
+        };
 
         (ac.AdditionalProperties ??= [])["uri"] = content.Uri;
         ac.RawRepresentation = content;
@@ -79,7 +109,7 @@ public static class AIContentExtensions
     {
         Throw.IfNull(contents);
 
-        return contents.Select(ToAIContent).ToList();
+        return [.. contents.Select(ToAIContent)];
     }
 
     /// <summary>Creates a list of <see cref="AIContent"/> from a sequence of <see cref="ResourceContents"/>.</summary>
@@ -89,7 +119,7 @@ public static class AIContentExtensions
     {
         Throw.IfNull(contents);
 
-        return contents.Select(ToAIContent).ToList();
+        return [.. contents.Select(ToAIContent)];
     }
 
     /// <summary>Extracts the data from a <see cref="DataContent"/> as a Base64 string.</summary>

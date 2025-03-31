@@ -1,6 +1,5 @@
 ﻿using System.Globalization;
 using System.Runtime.InteropServices;
-using ModelContextProtocol.Configuration;
 using ModelContextProtocol.Logging;
 using ModelContextProtocol.Protocol.Transport;
 using ModelContextProtocol.Utils;
@@ -82,7 +81,14 @@ public static class McpClientFactory
         }
         catch
         {
-            await transport.DisposeAsync().ConfigureAwait(false);
+            if (transport is IAsyncDisposable asyncDisposableTransport)
+            {
+                await asyncDisposableTransport.DisposeAsync().ConfigureAwait(false);
+            }
+            else if (transport is IDisposable disposableTransport)
+            {
+                disposableTransport.Dispose();
+            }
             throw;
         }
     }

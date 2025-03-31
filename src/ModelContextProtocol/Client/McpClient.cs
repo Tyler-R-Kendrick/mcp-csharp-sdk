@@ -1,11 +1,10 @@
-﻿using ModelContextProtocol.Configuration;
+﻿using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Logging;
 using ModelContextProtocol.Protocol.Messages;
 using ModelContextProtocol.Protocol.Transport;
 using ModelContextProtocol.Protocol.Types;
 using ModelContextProtocol.Shared;
 using ModelContextProtocol.Utils.Json;
-using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
 namespace ModelContextProtocol.Client;
@@ -13,23 +12,24 @@ namespace ModelContextProtocol.Client;
 /// <inheritdoc/>
 internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
 {
-    private readonly McpClientOptions _options;
     private readonly IClientTransport _clientTransport;
+    private readonly McpClientOptions _options;
 
-    private volatile bool _isInitializing;
+    private ITransport? _sessionTransport;
+    private CancellationTokenSource? _connectCts;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="McpClient"/> class.
     /// </summary>
-    /// <param name="transport">The transport to use for communication with the server.</param>
+    /// <param name="clientTransport">The transport to use for communication with the server.</param>
     /// <param name="options">Options for the client, defining protocol version and capabilities.</param>
     /// <param name="serverConfig">The server configuration.</param>
     /// <param name="loggerFactory">The logger factory.</param>
-    public McpClient(IClientTransport transport, McpClientOptions options, McpServerConfig serverConfig, ILoggerFactory? loggerFactory)
-        : base(transport, loggerFactory)
+    public McpClient(IClientTransport clientTransport, McpClientOptions options, McpServerConfig serverConfig, ILoggerFactory? loggerFactory)
+        : base(loggerFactory)
     {
+        _clientTransport = clientTransport;
         _options = options;
-        _clientTransport = transport;
 
         EndpointName = $"Client ({serverConfig.Id}: {serverConfig.Name})";
 
@@ -41,7 +41,7 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
             }
 
             SetRequestHandler<CreateMessageRequestParams, CreateMessageResult>(
-                "sampling/createMessage",
+                RequestMethods.SamplingCreateMessage,
                 (request, ct) => samplingHandler(request, ct));
         }
 
@@ -53,7 +53,7 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
             }
 
             SetRequestHandler<ListRootsRequestParams, ListRootsResult>(
-                "roots/list",
+                RequestMethods.RootsList,
                 (request, ct) => rootsHandler(request, ct));
         }
     }
@@ -70,53 +70,23 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
     /// <inheritdoc/>
     public override string EndpointName { get; }
 
-    /// <inheritdoc/>
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
-        if (IsInitialized)
-        {
-            _logger.ClientAlreadyInitialized(EndpointName);
-            return;
-        }
+        _connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cancellationToken = _connectCts.Token;
 
-        if (_isInitializing)
-        {
-            _logger.ClientAlreadyInitializing(EndpointName);
-            throw new InvalidOperationException("Client is already initializing");
-        }
-
-        _isInitializing = true;
         try
         {
-            CancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
             // Connect transport
-            await _clientTransport.ConnectAsync(CancellationTokenSource.Token).ConfigureAwait(false);
-
-            // Start processing messages
-            MessageProcessingTask = ProcessMessagesAsync(CancellationTokenSource.Token);
+            _sessionTransport = await _clientTransport.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            InitializeSession(_sessionTransport);
+            // We don't want the ConnectAsync token to cancel the session after we've successfully connected.
+            // The base class handles cleaning up the session in DisposeAsync without our help.
+            StartSession(fullSessionCancellationToken: CancellationToken.None);
 
             // Perform initialization sequence
-            await InitializeAsync(CancellationTokenSource.Token).ConfigureAwait(false);
-
-            IsInitialized = true;
-        }
-        catch (Exception e)
-        {
-            _logger.ClientInitializationError(EndpointName, e);
-            await CleanupAsync().ConfigureAwait(false);
-            throw;
-        }
-        finally
-        {
-            _isInitializing = false;
-        }
-    }
-
-    private async Task InitializeAsync(CancellationToken cancellationToken)
-    {
-        using var initializationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        initializationCts.CancelAfter(_options.InitializationTimeout);
+            using var initializationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            initializationCts.CancelAfter(_options.InitializationTimeout);
 
         try
         {
@@ -124,7 +94,7 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
             var initializeResponse = await SendRequestAsync<InitializeResult>(
                 new JsonRpcRequest
                 {
-                    Method = "initialize",
+                    Method = RequestMethods.Initialize,
                     Params = new InitializeRequestParams()
                     {
                         ProtocolVersion = _options.ProtocolVersion,
@@ -134,31 +104,61 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
                 },
                 initializationCts.Token).ConfigureAwait(false);
 
-            // Store server information
-            _logger.ServerCapabilitiesReceived(EndpointName, 
-                capabilities: JsonSerializer.Serialize(initializeResponse.Capabilities, McpJsonUtilities.JsonContext.Default.ServerCapabilities),
-                serverInfo: JsonSerializer.Serialize(initializeResponse.ServerInfo, McpJsonUtilities.JsonContext.Default.Implementation));
+                // Store server information
+                _logger.ServerCapabilitiesReceived(EndpointName,
+                    capabilities: JsonSerializer.Serialize(initializeResponse.Capabilities, McpJsonUtilities.JsonContext.Default.ServerCapabilities),
+                    serverInfo: JsonSerializer.Serialize(initializeResponse.ServerInfo, McpJsonUtilities.JsonContext.Default.Implementation));
 
-            ServerCapabilities = initializeResponse.Capabilities;
-            ServerInfo = initializeResponse.ServerInfo;
-            ServerInstructions = initializeResponse.Instructions;
+                ServerCapabilities = initializeResponse.Capabilities;
+                ServerInfo = initializeResponse.ServerInfo;
+                ServerInstructions = initializeResponse.Instructions;
 
-            // Validate protocol version
-            if (initializeResponse.ProtocolVersion != _options.ProtocolVersion)
+                // Validate protocol version
+                if (initializeResponse.ProtocolVersion != _options.ProtocolVersion)
+                {
+                    _logger.ServerProtocolVersionMismatch(EndpointName, _options.ProtocolVersion, initializeResponse.ProtocolVersion);
+                    throw new McpClientException($"Server protocol version mismatch. Expected {_options.ProtocolVersion}, got {initializeResponse.ProtocolVersion}");
+                }
+
+                // Send initialized notification
+                await SendMessageAsync(
+                    new JsonRpcNotification { Method = NotificationMethods.InitializedNotification },
+                    initializationCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (initializationCts.IsCancellationRequested)
             {
-                _logger.ServerProtocolVersionMismatch(EndpointName, _options.ProtocolVersion, initializeResponse.ProtocolVersion);
-                throw new McpClientException($"Server protocol version mismatch. Expected {_options.ProtocolVersion}, got {initializeResponse.ProtocolVersion}");
+                _logger.ClientInitializationTimeout(EndpointName);
+                throw new McpClientException("Initialization timed out");
+            }
+        }
+        catch (Exception e)
+        {
+            _logger.ClientInitializationError(EndpointName, e);
+            await DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    /// <inheritdoc/>
+    public override async ValueTask DisposeUnsynchronizedAsync()
+    {
+        if (_connectCts is not null)
+        {
+            await _connectCts.CancelAsync().ConfigureAwait(false);
+        }
+
+        try
+        {
+            await base.DisposeUnsynchronizedAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            if (_sessionTransport is not null)
+            {
+                await _sessionTransport.DisposeAsync().ConfigureAwait(false);
             }
 
-            // Send initialized notification
-            await SendMessageAsync(
-                new JsonRpcNotification { Method = "notifications/initialized" },
-                initializationCts.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (initializationCts.IsCancellationRequested)
-        {
-            _logger.ClientInitializationTimeout(EndpointName);
-            throw new McpClientException("Initialization timed out");
+            _connectCts?.Dispose();
         }
     }
 }

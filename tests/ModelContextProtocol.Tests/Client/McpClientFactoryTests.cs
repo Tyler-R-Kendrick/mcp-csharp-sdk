@@ -1,6 +1,5 @@
 using System.Threading.Channels;
 using ModelContextProtocol.Client;
-using ModelContextProtocol.Configuration;
 using ModelContextProtocol.Protocol.Messages;
 using ModelContextProtocol.Protocol.Transport;
 using ModelContextProtocol.Protocol.Types;
@@ -187,7 +186,7 @@ public class McpClientFactoryTests
         await Assert.ThrowsAsync<ArgumentException>(() => McpClientFactory.CreateAsync(config, _defaultOptions, cancellationToken: TestContext.Current.CancellationToken));
     }
 
-    private sealed class NopTransport : IClientTransport
+    private sealed class NopTransport : ITransport, IClientTransport
     {
         private readonly Channel<IJsonRpcMessage> _channel = Channel.CreateUnbounded<IJsonRpcMessage>();
 
@@ -195,8 +194,7 @@ public class McpClientFactoryTests
 
         public ChannelReader<IJsonRpcMessage> MessageReader => _channel.Reader;
 
-        public Task ConnectAsync(CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
+        public Task<ITransport> ConnectAsync(CancellationToken cancellationToken = default) => Task.FromResult<ITransport>(this);
 
         public ValueTask DisposeAsync() => default;
 
