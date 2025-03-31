@@ -78,10 +78,9 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
         {
             // Connect transport
             _sessionTransport = await _clientTransport.ConnectAsync(cancellationToken).ConfigureAwait(false);
-            InitializeSession(_sessionTransport);
             // We don't want the ConnectAsync token to cancel the session after we've successfully connected.
             // The base class handles cleaning up the session in DisposeAsync without our help.
-            StartSession(fullSessionCancellationToken: CancellationToken.None);
+            StartSession(_sessionTransport, fullSessionCancellationToken: CancellationToken.None);
 
             // Perform initialization sequence
             using var initializationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -141,13 +140,14 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
     /// <inheritdoc/>
     public override async ValueTask DisposeUnsynchronizedAsync()
     {
-        if (_connectCts is not null)
-        {
-            await _connectCts.CancelAsync().ConfigureAwait(false);
-        }
-
         try
         {
+            if (_connectCts is not null)
+            {
+                await _connectCts.CancelAsync().ConfigureAwait(false);
+                _connectCts.Dispose();
+            }
+
             await base.DisposeUnsynchronizedAsync().ConfigureAwait(false);
         }
         finally
@@ -156,8 +156,6 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
             {
                 await _sessionTransport.DisposeAsync().ConfigureAwait(false);
             }
-
-            _connectCts?.Dispose();
         }
     }
 }
