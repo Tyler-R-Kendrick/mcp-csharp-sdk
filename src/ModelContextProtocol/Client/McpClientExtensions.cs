@@ -550,7 +550,7 @@ public static class McpClientExtensions
             await foreach (var streamingResponse in streamingResponses)
             {
                 updates.Add(streamingResponse);
-                if(progressToken is not null)
+                if (progressToken is not null)
                 {
                     progress.Report(new()
                     {
