@@ -396,13 +396,12 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                 foreach (McpServerTool tool in tools)
                 {
                     resultTools.Add(tool.ProtocolTool);
-                    if(progressToken is not null)
+                    if (progressToken is not null)
                     {
                         await this.NotifyProgressAsync(new()
                         {
                             Progress = resultTools.Count,
                             Total = totalProgress,
-                            Message = $"Listing tool '{tool.ProtocolTool.Name}'...",
                         }, cancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -416,20 +415,20 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                         foreach(var tool in extraResults.Tools)
                         {
                             resultTools.Add(tool);
-                            if (progressToken is not null)
-                            {
-                                await this.NotifyProgressAsync(new()
-                                {
-                                    Progress = resultTools.Count,
-                                    Message = $"Listing extra tool '{tool.Name}'...",
-                                }, cancellationToken).ConfigureAwait(false);
-                            }
                         }
 
                         nextCursor = extraResults.NextCursor;
                         if (nextCursor is not null)
                         {
                             request = request with { Params = new() { Cursor = nextCursor } };
+                        }
+                        
+                        if (progressToken is not null)
+                        {
+                            await this.NotifyProgressAsync(new()
+                            {
+                                Progress = resultTools.Count,
+                            }, cancellationToken).ConfigureAwait(false);
                         }
                     }
                     while (nextCursor is not null);
@@ -441,14 +440,12 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                     {
                         Progress = resultTools.Count,
                         Total = resultTools.Count,
-                        Message = "Finished listing all tools.",
                     }, cancellationToken).ConfigureAwait(false);
                 }
 
                 return result;
             };
 
-            // TODO: We may want to inject something like an IProgress instance here for optional use in tool handlers. 
             callToolHandler = (request, cancellationToken) =>
             {
                 if (request.Params is null ||
