@@ -544,8 +544,11 @@ public static class McpClientExtensions
     /// satisfy sampling requests using the specified <see cref="IChatClient"/>.
     /// </summary>
     /// <param name="chatClient">The <see cref="IChatClient"/> with which to satisfy sampling requests.</param>
+    /// <param name="mcpClient">The <see cref="IMcpClient"/> to use for sending progress notifications.</param>
+    /// <param name="defaultModelId">The default model ID to use if none is specified in the request.</param>
     /// <returns>The created handler delegate.</returns>
-    public static Func<CreateMessageRequestParams?, CancellationToken, Task<CreateMessageResult>> CreateSamplingHandler(this IChatClient chatClient)
+    public static Func<CreateMessageRequestParams?, CancellationToken, Task<CreateMessageResult>> CreateSamplingHandler(
+        this IChatClient chatClient, IMcpClient mcpClient, string defaultModelId)
     {
         Throw.IfNull(chatClient);
 
@@ -554,8 +557,31 @@ public static class McpClientExtensions
             Throw.IfNull(requestParams);
 
             var (messages, options) = requestParams.ToChatClientArguments();
-            var response = await chatClient.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
-            return response.ToCreateMessageResult();
+            var progressToken = requestParams.Meta?.ProgressToken;
+            var maxProgress = options?.MaxOutputTokens;
+            int progress = 0;
+            var streamingResponses = chatClient.GetStreamingResponseAsync(
+                messages, options, cancellationToken);
+            List<ChatResponseUpdate> updates = [];
+            await foreach (var streamingResponse in streamingResponses)
+            {
+                updates.Add(streamingResponse);
+                if(progressToken is not null)
+                {
+                    await mcpClient.SendNotificationAsync(
+                        NotificationMethods.ProgressNotification,
+                        new ProgressNotificationParams()
+                        {
+                            ProgressToken = progressToken,
+                            Progress = progress,
+                            Total = maxProgress,
+                            //TODO: Consider alternative messaging to avoid leaking data.
+                            Message = streamingResponse.ToString(),
+                        }, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            var chatResponse = updates.ToChatResponse();
+            return chatResponse.ToCreateMessageResult();
         };
     }
 
