@@ -559,8 +559,7 @@ public static class McpClientExtensions
                     });
                 }
             }
-            var chatResponse = updates.ToChatResponse();
-            return chatResponse.ToCreateMessageResult();
+            return updates.ToChatResponse().ToCreateMessageResult();
         };
     }
 
