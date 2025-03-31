@@ -39,10 +39,16 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
             {
                 throw new InvalidOperationException($"Sampling capability was set but it did not provide a handler.");
             }
-
+            Progress<ProgressNotificationParams> progress = new(progress =>
+            {
+                this.SendNotificationAsync(
+                    method: NotificationMethods.ProgressNotification,
+                    parameters: progress
+                );
+            });
             SetRequestHandler<CreateMessageRequestParams, CreateMessageResult>(
                 RequestMethods.SamplingCreateMessage,
-                (request, ct) => samplingHandler(request, ct));
+                (request, ct) => samplingHandler(request, progress, ct));
         }
 
         if (options.Capabilities?.Roots is { } rootsCapability)

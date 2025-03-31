@@ -1,5 +1,6 @@
 ﻿namespace ModelContextProtocol;
 
+//TODO: Why did we introduce a duplicate type to ProgressNotificationParams? Why not include the progressToken value?
 /// <summary>Provides a progress value that can be sent using <see cref="IProgress{ProgressNotificationValue}"/>.</summary>
 public record struct ProgressNotificationValue
 {

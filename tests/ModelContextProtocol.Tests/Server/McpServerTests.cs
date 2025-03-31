@@ -702,9 +702,8 @@ public class McpServerTests : LoggedTest
         await using var server = McpServerFactory.Create(
             transport, options, LoggerFactory, _serviceProvider);
 
-        var logger = LoggerFactory.CreateLogger<IMcpServer>();
         configureServer?.Invoke(server);
-        await server.StartAsync();
+        await server.RunAsync();
 
         TaskCompletionSource<JsonRpcNotification> receivedMessage = new();
 
