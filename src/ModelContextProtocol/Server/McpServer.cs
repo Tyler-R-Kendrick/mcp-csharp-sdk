@@ -396,14 +396,14 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                     
                 async Task TryNotifyProgressAsync(int previousCount)
                 {
-                    var toolsCount = resultTools.Count;
+                    var currentCount = resultTools.Count;
                     if (progressToken is not null
-                        && toolsCount > 0
-                        && toolsCount != previousCount)
+                        && currentCount > 0
+                        && currentCount != previousCount)
                     {
                         await this.NotifyProgressAsync(new()
                         {
-                            Progress = toolsCount,
+                            Progress = currentCount,
                         }, cancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -416,8 +416,8 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                 if (originalListToolsHandler is not null)
                 {
                     string? nextCursor = null;
-                    var progressValue = resultTools.Count;
-                    await TryNotifyProgressAsync(progressValue).ConfigureAwait(false);
+                    var initialCount = resultTools.Count;
+                    await TryNotifyProgressAsync(initialCount).ConfigureAwait(false);
                     do
                     {
                         var extraResults = await originalListToolsHandler(request, cancellationToken).ConfigureAwait(false);
@@ -428,7 +428,7 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                         {
                             request = request with { Params = new() { Cursor = nextCursor } };
                         }
-                        await TryNotifyProgressAsync(progressValue).ConfigureAwait(false);
+                        await TryNotifyProgressAsync(initialCount).ConfigureAwait(false);
                     }
                     while (nextCursor is not null);
                 }
