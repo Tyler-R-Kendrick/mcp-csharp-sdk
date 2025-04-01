@@ -303,68 +303,21 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
             var originalCallToolHandler = callToolHandler;
             var hasOriginalTools = originalListToolsHandler is not null;
 
-            // Synthesize the handlers, making sure a ToolsCapability is specified.
-            var originalListToolsHandler = listToolsHandler;
             listToolsHandler = async (request, cancellationToken) =>
             {
-                var progressToken = request.Params?.Meta?.ProgressToken;
                 int? totalProgress = hasOriginalTools ? null : tools.Count;
                 ListToolsResult result = originalListToolsHandler is not null
                     ? await originalListToolsHandler(request, cancellationToken).ConfigureAwait(false)
-                    : [];
-                var resultTools = result.Tools;
-                    
-                async Task TryNotifyProgressAsync(int previousCount)
-                {
-                    var currentCount = resultTools.Count;
-                    if (progressToken is not null
-                        && currentCount > 0
-                        && currentCount != previousCount)
-                    {
-                        await this.NotifyProgressAsync(new()
-                        {
-                            ProgressToken = progressToken.Value,
-                            Progress = new()
-                            {
-                                Progress = currentCount,
-                            },
-                        }, cancellationToken).ConfigureAwait(false);
-                    }
-                }
+                    : new();
 
                 if (request.Params?.Cursor is null)
                 {
-                    resultTools.AddRange(tools.Select(t => t.ProtocolTool));
-                }
-
-                if (originalListToolsHandler is not null)
-                {
-                    string? nextCursor = null;
-                    var initialCount = resultTools.Count;
-                    int lastReportedCount = 0;  
-                    do  
-                    {  
-                        if (progressToken is not null && resultTools.Count > lastReportedCount)  
-                        {  
-                            await TryNotifyProgressAsync(lastReportedCount).ConfigureAwait(false);  
-                            lastReportedCount = resultTools.Count;  
-                        }
-                        var extraResults = await originalListToolsHandler(request, cancellationToken).ConfigureAwait(false);
-                        resultTools.AddRange(extraResults.Tools);
-
-                        nextCursor = extraResults.NextCursor;
-                        if (nextCursor is not null)
-                        {
-                            request = request with { Params = new() { Cursor = nextCursor } };
-                        }
-                    }
-                    while (nextCursor is not null);
+                    result.Tools.AddRange(tools.Select(t => t.ProtocolTool));
                 }
 
                 return result;
             };
 
-            var originalCallToolHandler = callToolHandler;
             callToolHandler = (request, cancellationToken) =>
             {
                 if (request.Params is null ||
