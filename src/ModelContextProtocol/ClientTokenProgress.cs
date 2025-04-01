@@ -3,25 +3,15 @@ using ModelContextProtocol.Protocol.Messages;
 
 namespace ModelContextProtocol;
 
-internal sealed class ClientTokenProgress(IMcpClient client, ProgressToken progressToken)
-    : IProgress<ProgressNotificationValue>
+/// <summary>
+/// Provides an <see cref="IProgress{ProgressNotificationValue}"/> tied to a specific progress token and that will issue
+/// progress notifications on the supplied endpoint.
+/// </summary>
+internal sealed class TokenProgress(IMcpEndpoint endpoint, ProgressToken progressToken) : IProgress<ProgressNotificationValue>
 {
     /// <inheritdoc />
     public void Report(ProgressNotificationValue value)
     {
-        _ = client.SendMessageAsync(new JsonRpcNotification()
-        {
-            Method = NotificationMethods.ProgressNotification,
-            Params = new ProgressNotification()
-            {
-                ProgressToken = progressToken,
-                Progress = new()
-                {
-                    Progress = value.Progress,
-                    Total = value.Total,
-                    Message = value.Message,
-                },
-            },
-        }, CancellationToken.None);
+        _ = endpoint.NotifyProgressAsync(progressToken, value, CancellationToken.None);
     }
 }

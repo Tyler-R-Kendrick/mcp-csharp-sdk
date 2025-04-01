@@ -46,7 +46,7 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
                 {
                     var progressToken = request?.Meta?.ProgressToken;
                     return samplingHandler(
-                        request, progressToken is not null
+                        request, progressToken is { } token
                         ? new ClientTokenProgress(this, progressToken.Value)
                         : NullProgress.Instance, ct);
                 });
@@ -61,7 +61,7 @@ internal sealed class McpClient : McpJsonRpcEndpoint, IMcpClient
 
             SetRequestHandler<ListRootsRequestParams, ListRootsResult>(
                 RequestMethods.RootsList,
-                (request, ct) => rootsHandler(request, ct));
+                (request, cancellationToken) => rootsHandler(request, cancellationToken));
         }
     }
 
