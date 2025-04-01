@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.Logging;
-using ModelContextProtocol.Logging;
 using ModelContextProtocol.Protocol.Messages;
 using ModelContextProtocol.Protocol.Transport;
 using ModelContextProtocol.Protocol.Types;
@@ -213,41 +212,26 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
             throw new McpServerException("ListPrompts and GetPrompt handlers should be specified together.");
         }
 
-        // Handle tools provided via DI.
+        // Handle prompts provided via DI.
         if (prompts is { IsEmpty: false })
         {
+            // Synthesize the handlers, making sure a PromptsCapability is specified.
             var originalListPromptsHandler = listPromptsHandler;
-            var originalGetPromptHandler = getPromptHandler;
-
-            // Synthesize the handlers, making sure a ToolsCapability is specified.
             listPromptsHandler = async (request, cancellationToken) =>
             {
-                ListPromptsResult result = new();
-                foreach (McpServerPrompt prompt in prompts)
-                {
-                    result.Prompts.Add(prompt.ProtocolPrompt);
-                }
+                ListPromptsResult result = originalListPromptsHandler is not null ?
+                    await originalListPromptsHandler(request, cancellationToken).ConfigureAwait(false) :
+                    new();
 
-                if (originalListPromptsHandler is not null)
+                if (request.Params?.Cursor is null)
                 {
-                    string? nextCursor = null;
-                    do
-                    {
-                        ListPromptsResult extraResults = await originalListPromptsHandler(request, cancellationToken).ConfigureAwait(false);
-                        result.Prompts.AddRange(extraResults.Prompts);
-
-                        nextCursor = extraResults.NextCursor;
-                        if (nextCursor is not null)
-                        {
-                            request = request with { Params = new() { Cursor = nextCursor } };
-                        }
-                    }
-                    while (nextCursor is not null);
+                    result.Prompts.AddRange(prompts.Select(t => t.ProtocolPrompt));
                 }
 
                 return result;
             };
 
+            var originalGetPromptHandler = getPromptHandler;
             getPromptHandler = (request, cancellationToken) =>
             {
                 if (request.Params is null ||
@@ -320,11 +304,14 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
             var hasOriginalTools = originalListToolsHandler is not null;
 
             // Synthesize the handlers, making sure a ToolsCapability is specified.
+            var originalListToolsHandler = listToolsHandler;
             listToolsHandler = async (request, cancellationToken) =>
             {
                 var progressToken = request.Params?.Meta?.ProgressToken;
                 int? totalProgress = hasOriginalTools ? null : tools.Count;
-                ListToolsResult result = new();
+                ListToolsResult result = originalListToolsHandler is not null
+                    ? await originalListToolsHandler(request, cancellationToken).ConfigureAwait(false)
+                    : [];
                 var resultTools = result.Tools;
                     
                 async Task TryNotifyProgressAsync(int previousCount)
@@ -345,9 +332,9 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                     }
                 }
 
-                foreach (McpServerTool tool in tools)
+                if (request.Params?.Cursor is null)
                 {
-                    resultTools.Add(tool.ProtocolTool);
+                    resultTools.AddRange(tools.Select(t => t.ProtocolTool));
                 }
 
                 if (originalListToolsHandler is not null)
@@ -362,7 +349,6 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                             await TryNotifyProgressAsync(lastReportedCount).ConfigureAwait(false);  
                             lastReportedCount = resultTools.Count;  
                         }
-
                         var extraResults = await originalListToolsHandler(request, cancellationToken).ConfigureAwait(false);
                         resultTools.AddRange(extraResults.Tools);
 
@@ -378,6 +364,7 @@ internal sealed class McpServer : McpJsonRpcEndpoint, IMcpServer
                 return result;
             };
 
+            var originalCallToolHandler = callToolHandler;
             callToolHandler = (request, cancellationToken) =>
             {
                 if (request.Params is null ||
