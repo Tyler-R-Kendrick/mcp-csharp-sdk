@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol.Messages;
@@ -25,6 +26,7 @@ public class McpServerBuilderExtensionsResourceTemplatesTests(ITestOutputHelper 
                 Description = "test2 resource",
                 UriTemplate = "test2.txt",
             });
+        mcpServerBuilder.Services.AddSingleton<IFileProvider>(new NullFileProvider());
         base.ConfigureServices(services, mcpServerBuilder);
     }
 
@@ -47,7 +49,7 @@ public class McpServerBuilderExtensionsResourceTemplatesTests(ITestOutputHelper 
         var client = await CreateMcpClientForServer();
 
         // Act
-        var resources = await client.ListResourcesAsync(token);
+        var resources = await client.ListResourceTemplatesAsync(token);
 
         // Assert
         Assert.NotNull(resources);
@@ -73,7 +75,7 @@ public class McpServerBuilderExtensionsResourceTemplatesTests(ITestOutputHelper 
             });
 
         // Act
-        var resources = await client.ListResourcesAsync(token);
+        var resources = await client.ListResourceTemplatesAsync(token);
         Assert.NotNull(resources);
         Assert.Equal(2, resources.Count);
 
@@ -88,7 +90,7 @@ public class McpServerBuilderExtensionsResourceTemplatesTests(ITestOutputHelper 
 
         // Assert
         await changeReceived.Task.WaitAsync(TimeSpan.FromSeconds(3), token);
-        var updatedResources = await client.ListResourcesAsync(token);
+        var updatedResources = await client.ListResourceTemplatesAsync(token);
         Assert.NotNull(updatedResources);
         Assert.Equal(3, updatedResources.Count);
     }

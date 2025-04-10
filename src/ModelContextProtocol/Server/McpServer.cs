@@ -1,10 +1,11 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol.Messages;
 using ModelContextProtocol.Protocol.Transport;
 using ModelContextProtocol.Protocol.Types;
 using ModelContextProtocol.Shared;
 using ModelContextProtocol.Utils;
-using ModelContextProtocol.Utils.Json;
 using System.Runtime.CompilerServices;
 using static ModelContextProtocol.Utils.Json.McpJsonUtilities.JsonContext;
 
@@ -198,7 +199,9 @@ internal sealed class McpServer : McpEndpoint, IMcpServer
                 await originalListResourceTemplatesHandler(request, cancellationToken).ConfigureAwait(false) :
                 new();
 
-            if (request.Params?.Cursor is null && resourceTemplateCollection is not null)
+            if (request.Params?.Cursor is null
+                && resourceTemplateCollection is not null
+                && resourceTemplateCollection.IsEmpty is false)
             {
                 result.ResourceTemplates.AddRange(resourceTemplateCollection.Select(t => t.ProtocolResourceTemplate));
             }
@@ -213,7 +216,9 @@ internal sealed class McpServer : McpEndpoint, IMcpServer
                 await originalListResourcesHandler(request, cancellationToken).ConfigureAwait(false) :
                 new();
 
-            if (request.Params?.Cursor is null && resourceCollection is not null)
+            if (request.Params?.Cursor is null
+                && resourceCollection is not null
+                && resourceCollection.IsEmpty is false)
             {
                 result.Resources.AddRange(resourceCollection.Select(t => t.ProtocolResource));
             }
@@ -221,9 +226,60 @@ internal sealed class McpServer : McpEndpoint, IMcpServer
             return result;
         };
 
-        if (resourceCollection is not { IsEmpty: false } && readResourceHandler is not { })
+        var originalFileProvider = Services?.GetService<IFileProvider>();
+        var originalReadResourceHandler = readResourceHandler;
+        readResourceHandler = async (request, cancellationToken) =>
         {
-            throw new McpException("Resources capability was enabled, but ReadResource handlers were not specified.");
+            ReadResourceResult result = originalReadResourceHandler is not null ?
+                await originalReadResourceHandler(request, cancellationToken).ConfigureAwait(false) :
+                new() { Contents = [] };
+            McpServerResource? resource = null;
+            if (request.Params is null ||
+                resourceCollection?.TryGetPrimitive(request.Params.Uri, out resource) is false)
+            {
+                return originalReadResourceHandler is not null
+                    ? await originalReadResourceHandler(request, cancellationToken).ConfigureAwait(false)
+                    : throw new McpException($"Unknown resource '{request.Params?.Uri}'");
+            }
+
+            var uri = resource?.ProtocolResource.Uri ?? throw new McpException("Resource URI was not specified.");
+            var fileProvider = originalFileProvider ?? throw new McpException("File provider was not specified.");
+            var fileInfo = fileProvider.GetFileInfo(uri);
+
+            if (fileInfo.Exists)
+            {
+                using var stream = fileInfo.CreateReadStream();
+                using StreamReader reader = new(stream);
+                var content = await reader.ReadToEndAsync().ConfigureAwait(false);
+                var protocolResource = resource.ProtocolResource;
+                result.Contents = resource.ProtocolResource.MimeType switch
+                {
+                    "text/plain" => [new TextResourceContents
+                    {
+                         MimeType = protocolResource.MimeType,
+                         Uri = protocolResource.Uri,
+                         Text = content,
+                    }],
+                    _ => [new BlobResourceContents
+                    {
+                        Blob = content,
+                        MimeType = protocolResource.MimeType,
+                        Uri = protocolResource.Uri,
+                    }],
+                };
+            }
+            else
+            {
+                throw new McpException($"Resource '{request.Params.Uri}' not found.");
+            }
+            return result;
+        };
+
+        if (resourceCollection is not { IsEmpty: false }
+            && originalReadResourceHandler is not { }
+            && originalFileProvider is null)
+        {
+            throw new McpException("Resources capability was enabled, but ReadResource handlers were not specified or a FileProvider wasn't configured.");
         }
 
         RequestHandlers.Set(
@@ -232,7 +288,6 @@ internal sealed class McpServer : McpEndpoint, IMcpServer
             Default.ListResourcesRequestParams,
             Default.ListResourcesResult);
 
-        readResourceHandler ??= static (_, _) => Task.FromResult(new ReadResourceResult());
         RequestHandlers.Set(
             RequestMethods.ResourcesRead,
             (request, cancellationToken) => readResourceHandler(new(this, request), cancellationToken),
