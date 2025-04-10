@@ -356,6 +356,178 @@ public static partial class McpServerBuilderExtensions
 
     #endregion
 
+    #region WithResourceTemplates
+
+    private static bool ValidateUriTemplate(string uriTemplate)
+    {
+        // Basic validation for URI template format according to RFC 6570
+        // This is a simplified validation that checks for basic template syntax
+        if (string.IsNullOrWhiteSpace(uriTemplate))
+            return false;
+
+        // Check for balanced braces in template expressions
+        int openBraces = 0;
+        bool inExpression = false;
+
+        foreach (char c in uriTemplate)
+        {
+            if (c == '{')
+            {
+                if (inExpression) 
+                    return false; // Nested braces are not allowed
+                
+                inExpression = true;
+                openBraces++;
+            }
+            else if (c == '}')
+            {
+                if (!inExpression)
+                    return false; // Closing brace without opening brace
+                
+                inExpression = false;
+                openBraces--;
+            }
+        }
+
+        // All expressions must be closed properly
+        if (openBraces != 0 || inExpression)
+            return false;
+
+        return true;
+    }
+
+    private static void ThrowIfInvalidUriTemplate(string uriTemplate)
+    {
+        Throw.IfNullOrWhiteSpace(uriTemplate);
+        if (!ValidateUriTemplate(uriTemplate))
+        {
+            throw new ArgumentException($"Invalid URI template format: {uriTemplate}. URI templates must adhere to RFC 6570.", nameof(uriTemplate));
+        }
+    }
+
+    private static McpServerResourceTemplate ToResourceTemplate(
+        ResourceTemplate resourceTemplate)
+    {
+        Throw.IfNull(resourceTemplate);
+        Throw.IfNullOrWhiteSpace(resourceTemplate.UriTemplate);
+        ThrowIfInvalidUriTemplate(resourceTemplate.UriTemplate);
+
+        return new()
+        {
+            ProtocolResourceTemplate = resourceTemplate
+        };
+    }
+
+    private static IMcpServerBuilder AddResourceTemplate(
+        this IMcpServerBuilder builder,
+        McpServerResourceTemplate resourceTemplate)
+    {
+        builder.Services.Configure<McpServerOptions>(s =>
+        {
+            var capabilities = s.Capabilities ??= new();
+            var resources = capabilities.Resources ??= new();
+            var collection = resources.ResourceTemplateCollection ??= [];
+            collection.Add(resourceTemplate);
+        });
+
+        return builder;
+    }
+
+    private static IMcpServerBuilder AddResourceTemplates(
+        this IMcpServerBuilder builder,
+        IEnumerable<McpServerResourceTemplate> resourceTemplates)
+    {
+        foreach (var resourceTemplate in resourceTemplates)
+        {
+            builder = builder.AddResourceTemplate(resourceTemplate);
+        }
+        return builder;
+    }
+
+    /// <summary>
+    /// Adds a resource template to the server's capabilities.
+    /// </summary>
+    /// <param name="builder">The builder instance.</param>
+    /// <param name="resourceTemplate">The resource template to add.</param>
+    /// <returns>The <see cref="IMcpServerBuilder"/> instance.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="resourceTemplate"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">The URI template in <paramref name="resourceTemplate"/> does not adhere to RFC 6570.</exception>
+    public static IMcpServerBuilder WithResourceTemplate(
+        this IMcpServerBuilder builder,
+        McpServerResourceTemplate resourceTemplate)
+    {
+        Throw.IfNull(builder);
+        Throw.IfNull(resourceTemplate);
+        Throw.IfNull(resourceTemplate.ProtocolResourceTemplate);
+        ThrowIfInvalidUriTemplate(resourceTemplate.ProtocolResourceTemplate.UriTemplate);
+
+        return builder.AddResourceTemplate(resourceTemplate);
+    }
+
+    /// <summary>
+    /// Adds a resource template to the server's capabilities.
+    /// </summary>
+    /// <param name="builder">The builder instance.</param>
+    /// <param name="resourceTemplate">The protocol resource template.</param>
+    /// <returns>The <see cref="IMcpServerBuilder"/> instance.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="resourceTemplate"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">The URI template in <paramref name="resourceTemplate"/> does not adhere to RFC 6570.</exception>
+    public static IMcpServerBuilder WithResourceTemplate(
+        this IMcpServerBuilder builder,
+        ResourceTemplate resourceTemplate)
+    {
+        Throw.IfNull(builder);
+        Throw.IfNull(resourceTemplate);
+        
+        var template = ToResourceTemplate(resourceTemplate);
+        return builder.AddResourceTemplate(template);
+    }
+
+    /// <summary>
+    /// Adds a collection of resource templates to the server's capabilities.
+    /// </summary>
+    /// <param name="builder">The builder instance.</param>
+    /// <param name="resourceTemplates">The collection of the resource templates.</param>
+    /// <returns>The <see cref="IMcpServerBuilder"/> instance.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="resourceTemplates"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">One or more URI templates do not adhere to RFC 6570.</exception>
+    public static IMcpServerBuilder WithResourceTemplates(
+        this IMcpServerBuilder builder,
+        params IEnumerable<McpServerResourceTemplate> resourceTemplates)
+    {
+        Throw.IfNull(builder);
+        Throw.IfNull(resourceTemplates);
+
+        return builder.AddResourceTemplates(resourceTemplates);
+    }
+
+    /// <summary>
+    /// Adds a collection of resource templates to the server's capabilities.
+    /// </summary>
+    /// <param name="builder">The builder instance.</param>
+    /// <param name="resourceTemplates">The collection of the protocol resource templates.</param>
+    /// <returns>The <see cref="IMcpServerBuilder"/> instance.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="resourceTemplates"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">One or more URI templates do not adhere to RFC 6570.</exception>
+    public static IMcpServerBuilder WithResourceTemplates(
+        this IMcpServerBuilder builder,
+        params IEnumerable<ResourceTemplate> resourceTemplates)
+    {
+        Throw.IfNull(builder);
+        Throw.IfNull(resourceTemplates);
+
+        return builder.AddResourceTemplates(
+            from resourceTemplate in resourceTemplates
+            where resourceTemplate is not null
+            select ToResourceTemplate(resourceTemplate));
+    }
+
+    #endregion
+
     #region Handlers
     /// <summary>
     /// Configures a handler for listing resource templates available from the Model Context Protocol server.
